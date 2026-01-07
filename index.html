@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bosch GLM 50-27 CG Measurement Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .digital-font { font-family: 'JetBrains+Mono', monospace; }
+        .status-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-900">
+
+    <div class="max-w-md mx-auto p-4 flex flex-col min-h-screen">
+        <!-- Header -->
+        <header class="flex items-center justify-between mb-6 pt-2">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold italic">B</div>
+                <h1 class="text-xl font-bold tracking-tight text-slate-800">GLM Connect</h1>
+            </div>
+            <div id="connectionStatus" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-200 text-xs font-semibold">
+                <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                <span>OFFLINE</span>
+            </div>
+        </header>
+
+        <!-- Main Display -->
+        <main class="flex-grow flex flex-col gap-6">
+            
+            <!-- Measurement Card -->
+            <section class="bg-white rounded-3xl shadow-sm border border-slate-200 p-8 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute top-4 left-4 text-[10px] font-bold text-slate-400 tracking-widest uppercase">Live Reading</div>
+                
+                <div id="displayValue" class="text-7xl font-bold digital-font text-slate-800 mb-2 transition-all">0.000</div>
+                <div id="displayUnit" class="text-xl font-semibold text-blue-600">meters</div>
+
+                <!-- Laser Icon -->
+                <div id="laserIndicator" class="mt-4 flex items-center gap-2 opacity-0 transition-opacity">
+                    <span class="relative flex h-3 w-3">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
+                    <span class="text-xs font-medium text-red-600 uppercase">Laser Pulse</span>
+                </div>
+            </section>
+
+            <!-- Diagnostic / Help Section (Hidden by default, shown on error) -->
+            <div id="diagnosticPanel" class="hidden bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+                <h3 class="font-bold flex items-center gap-2 mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    Connection Troubleshooting
+                </h3>
+                <ul class="space-y-2 opacity-90 text-xs">
+                    <li id="check-bluetooth" class="flex items-center gap-2">
+                        <span class="status-icon">⚪</span> Browser Bluetooth Support
+                    </li>
+                    <li id="check-https" class="flex items-center gap-2">
+                        <span class="status-icon">⚪</span> Secure Connection (HTTPS)
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="status-icon">📍</span> Device must be in Pairing Mode
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Controls -->
+            <section class="grid grid-cols-2 gap-3">
+                <button id="connectBtn" class="col-span-2 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-md active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="m17 7-5-5-5 5"/><path d="m17 17-5 5-5-5"/></svg>
+                    PAIR BOSCH GLM
+                </button>
+                
+                <button id="unitBtn" class="flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl hover:bg-slate-50">
+                    <span id="currentUnitLabel">m</span>
+                </button>
+                
+                <button id="exportBtn" class="flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl hover:bg-slate-50">
+                    EXPORT
+                </button>
+            </section>
+
+            <!-- History -->
+            <section class="flex flex-col gap-3 flex-grow">
+                <div class="flex items-center justify-between px-1">
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-widest">History Log</h2>
+                    <button id="clearBtn" class="text-xs font-medium text-red-500 hover:text-red-700">Clear</button>
+                </div>
+                
+                <div id="historyList" class="flex-grow bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[250px] shadow-inner p-2 space-y-2">
+                    <div id="emptyHistory" class="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+                        <p class="text-xs">Waiting for readings...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full text-sm font-medium shadow-2xl opacity-0 translate-y-4 pointer-events-none transition-all duration-300 z-50">
+        Message
+    </div>
+
+    <script>
+        // Bosch GLM 50-27 CG Specific UUIDs
+        const BOSCH_SERVICE_UUID = '02a10001-524f-4b49-424f-5343484d5354';
+        const BOSCH_CHARACTERISTIC_UUID = '02a10002-524f-4b49-424f-5343484d5354';
+
+        let device = null;
+        let server = null;
+        let currentUnit = 'm';
+        let history = [];
+
+        const connectBtn = document.getElementById('connectBtn');
+        const unitBtn = document.getElementById('unitBtn');
+        const currentUnitLabel = document.getElementById('currentUnitLabel');
+        const historyList = document.getElementById('historyList');
+        const emptyHistory = document.getElementById('emptyHistory');
+        const displayValue = document.getElementById('displayValue');
+        const displayUnit = document.getElementById('displayUnit');
+        const laserIndicator = document.getElementById('laserIndicator');
+        const diagPanel = document.getElementById('diagnosticPanel');
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.backgroundColor = isError ? '#ef4444' : '#0f172a';
+            toast.classList.remove('opacity-0', 'translate-y-4');
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-y-4'), 4000);
+        }
+
+        function runDiagnostics() {
+            const hasBT = !!navigator.bluetooth;
+            const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            
+            document.querySelector('#check-bluetooth .status-icon').innerText = hasBT ? '✅' : '❌';
+            document.querySelector('#check-https .status-icon').innerText = isSecure ? '✅' : '❌';
+
+            if (!hasBT || !isSecure) {
+                diagPanel.classList.remove('hidden');
+            }
+        }
+
+        async function connect() {
+            runDiagnostics();
+            
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+                return;
+            }
+
+            try {
+                showToast("Opening Bluetooth selector...");
+                
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: 'GLM' },
+                        { services: [BOSCH_SERVICE_UUID] }
+                    ],
+                    optionalServices: [BOSCH_SERVICE_UUID]
+                });
+
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+
+                showToast("Connecting to GATT Server...");
+                server = await device.gatt.connect();
+
+                showToast("Discovering Bosch Service...");
+                const service = await server.getPrimaryService(BOSCH_SERVICE_UUID);
+                
+                showToast("Accessing Data Stream...");
+                const characteristic = await service.getCharacteristic(BOSCH_CHARACTERISTIC_UUID);
+
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', handleData);
+
+                onConnected();
+            } catch (error) {
+                console.error("Connection Error:", error);
+                diagPanel.classList.remove('hidden');
+                
+                if (error.name === 'NotFoundError') {
+                    showToast("Pairing cancelled or no device found.", true);
+                } else if (error.name === 'SecurityError') {
+                    showToast("Security Block: Needs HTTPS or User Gesture.", true);
+                } else {
+                    showToast(error.message, true);
+                }
+            }
+        }
+
+        function onConnected() {
+            const status = document.getElementById('connectionStatus');
+            status.querySelector('span:first-child').className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] status-pulse';
+            status.querySelector('span:last-child').innerText = 'CONNECTED';
+            
+            connectBtn.innerText = 'DISCONNECT';
+            connectBtn.className = 'col-span-2 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-md';
+            
+            diagPanel.classList.add('hidden');
+            showToast("Success! GLM Linked.");
+        }
+
+        function onDisconnected() {
+            const status = document.getElementById('connectionStatus');
+            status.querySelector('span:first-child').className = 'w-2 h-2 rounded-full bg-slate-400';
+            status.querySelector('span:last-child').innerText = 'OFFLINE';
+            
+            connectBtn.innerText = 'PAIR BOSCH GLM';
+            connectBtn.className = 'col-span-2 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-md';
+            
+            showToast("Device disconnected.");
+        }
+
+        function handleData(event) {
+            const value = event.target.value;
+            // The GLM 50-27 typically sends a structured packet.
+            // Simplified logic: The distance is usually a Float32 at a specific offset
+            // or sometimes sent as integers representing mm.
+            try {
+                let meters = value.getFloat32(1, true); // Common Bosch BLE format
+                if (meters > 0 && meters < 100) {
+                    processMeasurement(meters);
+                }
+            } catch (e) {
+                console.warn("Parsing packet failed:", e);
+            }
+        }
+
+        function processMeasurement(meters) {
+            laserIndicator.classList.remove('opacity-0');
+            setTimeout(() => laserIndicator.classList.add('opacity-0'), 1000);
+
+            let val = meters;
+            if (currentUnit === 'ft') val = meters * 3.28084;
+            if (currentUnit === 'in') val = meters * 39.3701;
+
+            const formatted = val.toFixed(3);
+            displayValue.innerText = formatted;
+            
+            history.unshift({
+                val: formatted,
+                unit: currentUnit,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            });
+            renderHistory();
+        }
+
+        function renderHistory() {
+            emptyHistory.classList.toggle('hidden', history.length > 0);
+            historyList.innerHTML = history.length === 0 ? '<div id="emptyHistory" class="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center"><p class="text-xs">Waiting for readings...</p></div>' : '';
+            
+            history.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between p-3 border-b border-slate-50 bg-slate-50/30 rounded-lg';
+                row.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-bold text-slate-400">${item.time}</span>
+                        <span class="text-lg font-bold digital-font text-slate-700">${item.val} <span class="text-[10px] text-blue-500 uppercase">${item.unit}</span></span>
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${item.val}')" class="p-2 text-slate-300 hover:text-blue-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    </button>
+                `;
+                historyList.appendChild(row);
+            });
+        }
+
+        // UI Events
+        connectBtn.addEventListener('click', connect);
+
+        unitBtn.addEventListener('click', () => {
+            const units = ['m', 'ft', 'in'];
+            currentUnit = units[(units.indexOf(currentUnit) + 1) % units.length];
+            currentUnitLabel.innerText = currentUnit;
+            displayUnit.innerText = currentUnit === 'm' ? 'meters' : currentUnit === 'ft' ? 'feet' : 'inches';
+            showToast(`Units changed to ${currentUnit}`);
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            history = [];
+            renderHistory();
+            displayValue.innerText = '0.000';
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            if (history.length === 0) return showToast("No data to export", true);
+            const csv = "Time,Value,Unit\n" + history.map(h => `${h.time},${h.val},${h.unit}`).join("\n");
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `bosch-glm-export.csv`;
+            a.click();
+        });
+
+        // Initialize Diagnostics on Load
+        window.onload = runDiagnostics;
+    </script>
+</body>
+</html>
+
