@@ -1,393 +1,425 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Laser Measure Pro</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #3b82f6;
-            --bg: #0f172a;
-        }
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg); 
-            color: #f8fafc;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .digital { font-family: 'JetBrains+Mono', monospace; }
-        .glass { 
-            background: rgba(30, 41, 59, 0.7); 
-            backdrop-filter: blur(12px); 
-            border: 1px solid rgba(255,255,255,0.08); 
-        }
-        .btn-active:active { transform: scale(0.96); }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        
-        /* Custom animations */
-        @keyframes pulse-ring {
-            0% { transform: scale(0.8); opacity: 0.5; }
-            100% { transform: scale(2); opacity: 0; }
-        }
-        .signal-pulse::before {
-            content: '';
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background-color: #ef4444;
-            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-    </style>
-</head>
-<body class="min-h-screen flex flex-col items-center">
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Ruler, Plus, Trash2, Bluetooth, BluetoothConnected, FileText, Settings, 
+  Package, Calculator, Download, Layers, Droplets, Square, Layout, 
+  PlusCircle, Pencil, X, Copy, Check, ShieldCheck, Box, Tag, Info, 
+  User, MapPin, Hash, Receipt, Droplet, Edit3, MessageSquare, Phone, Printer
+} from 'lucide-react';
 
-    <div class="max-w-md w-full px-5 py-6 flex flex-col min-h-screen gap-6">
-        
-        <!-- App Bar -->
-        <header class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="text-white" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold leading-tight">SmartMeasure</h1>
-                    <div id="connState" class="flex items-center gap-1.5 opacity-60">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500" id="statusDot"></span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider" id="statusText">Disconnected</span>
-                    </div>
-                </div>
+const App = () => {
+  // --- STATE MANAGEMENT ---
+  const [activeTab, setActiveTab] = useState('measure');
+  const [areas, setAreas] = useState([]);
+  const [extras, setExtras] = useState([]); 
+  const [editingId, setEditingId] = useState(null);
+
+  // Client & Project Details
+  const [projectInfo, setProjectInfo] = useState({
+    customerName: '',
+    phoneNumber: '',
+    siteAddress: '',
+    quoteReference: `QT-${Math.floor(1000 + Math.random() * 9000)}`,
+    date: new Date().toLocaleDateString('en-GB')
+  });
+
+  // VAT Settings
+  const [isVatRegistered, setIsVatRegistered] = useState(false);
+  const VAT_RATE = 0.20;
+
+  // New Area Form State
+  const [currentArea, setCurrentArea] = useState({ 
+    name: '', type: 'floor', isManualArea: false, manualArea: '',
+    width: '', length: '', tilePrice: '', wastePercent: 10,
+    hasCementBoard: false, hasAntiCrack: false, hasTanking: false
+  });
+
+  // Extras Form State
+  const [currentExtra, setCurrentExtra] = useState({ name: '', price: '', qty: 1 });
+  
+  // Bluetooth State
+  const [btStatus, setBtStatus] = useState('disconnected');
+  const [lastBleValue, setLastBleValue] = useState(null);
+  const bleDevice = useRef(null);
+
+  // Pricing Defaults
+  const [laborRate, setLaborRate] = useState(35); 
+  const [adhesivePrice, setAdhesivePrice] = useState(18.50); 
+  const [adhesiveCoverage, setAdhesiveCoverage] = useState(4.5); 
+  const [groutPrice, setGroutPrice] = useState(12.00); 
+  const [groutCoverage, setGroutCoverage] = useState(12.0); 
+  const [primerPrice, setPrimerPrice] = useState(15.00);
+  const [primerCoverage, setPrimerCoverage] = useState(25);
+  const [sealantPrice, setSealantPrice] = useState(8.50);
+  const [sealantCoverage, setSealantCoverage] = useState(8);
+  const [cementBoardPrice, setCementBoardPrice] = useState(15.00);
+  const [antiCrackPrice, setAntiCrackPrice] = useState(12.50);
+  const [tankingPrice, setTankingPrice] = useState(18.00); 
+
+  // --- CALCULATIONS ---
+  const grandTotalNetSqM = areas.reduce((acc, a) => acc + parseFloat(a.sqM || 0), 0);
+  const grandTotalGrossSqM = areas.reduce((acc, a) => acc + parseFloat(a.totalSqM || 0), 0);
+  
+  const totalTileCost = areas.reduce((acc, a) => acc + (a.tileTotal || 0), 0);
+  const totalPrepCost = areas.reduce((acc, a) => acc + (a.cementBoardCost || 0) + (a.antiCrackCost || 0) + (a.tankingCost || 0), 0);
+  
+  const bagsAdhesive = Math.ceil(grandTotalGrossSqM / adhesiveCoverage) || 0;
+  const totalAdhesiveCost = bagsAdhesive * adhesivePrice;
+  const bagsGrout = Math.ceil(grandTotalGrossSqM / groutCoverage) || 0;
+  const totalGroutCost = bagsGrout * groutPrice;
+  const tubsPrimer = Math.ceil(grandTotalGrossSqM / primerCoverage) || 0;
+  const totalPrimerCost = tubsPrimer * primerPrice;
+  const tubesSealant = Math.ceil(grandTotalGrossSqM / sealantCoverage) || 0;
+  const totalSealantCost = tubesSealant * sealantPrice;
+
+  const totalMaterialCost = totalTileCost + totalAdhesiveCost + totalGroutCost + totalPrepCost + totalPrimerCost + totalSealantCost;
+  const totalLabor = grandTotalGrossSqM * laborRate;
+  const totalExtras = extras.reduce((acc, e) => acc + (e.total || 0), 0);
+  
+  const subTotalNet = totalMaterialCost + totalLabor + totalExtras;
+  const vatAmount = isVatRegistered ? subTotalNet * VAT_RATE : 0;
+  const grandTotalGross = subTotalNet + vatAmount;
+
+  // --- BLUETOOTH LOGIC ---
+  const connectLaser = async () => {
+    try {
+      setBtStatus('connecting');
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb', '02a10001-524f-4b49-424f-5343484d5354']
+      });
+      const server = await device.gatt.connect();
+      const services = await server.getPrimaryServices();
+      const char = (await services[0].getCharacteristics()).find(c => c.properties.notify);
+      
+      if (char) {
+        await char.startNotifications();
+        char.addEventListener('characteristicvaluechanged', (e) => {
+          const val = new TextDecoder().decode(e.target.value).trim().match(/[0-9]+\.[0-9]+/);
+          if (val) {
+            setLastBleValue(val[0]);
+            setCurrentArea(p => {
+              if (p.isManualArea) return {...p, manualArea: val[0]};
+              if (!p.width) return {...p, width: val[0]};
+              if (!p.length) return {...p, length: val[0]};
+              return p;
+            });
+          }
+        });
+        bleDevice.current = device;
+        setBtStatus('connected');
+        device.addEventListener('gattserverdisconnected', () => setBtStatus('disconnected'));
+      }
+    } catch (err) { 
+      console.error(err);
+      setBtStatus('disconnected'); 
+    }
+  };
+
+  // --- AREA HANDLERS ---
+  const saveArea = () => {
+    const isManual = currentArea.isManualArea;
+    if (!currentArea.name || (isManual ? !currentArea.manualArea : (!currentArea.width || !currentArea.length))) return;
+    
+    const sqM = isManual ? parseFloat(currentArea.manualArea) : parseFloat(currentArea.width) * parseFloat(currentArea.length);
+    const waste = sqM * (currentArea.wastePercent / 100);
+    const totalSqM = sqM + waste;
+    const tileTotal = totalSqM * (parseFloat(currentArea.tilePrice) || 0);
+
+    const areaData = { 
+      ...currentArea,
+      sqM: sqM.toFixed(2),
+      totalSqM: totalSqM.toFixed(2),
+      tileTotal,
+      cementBoardCost: currentArea.type === 'floor' && currentArea.hasCementBoard ? totalSqM * cementBoardPrice : 0,
+      antiCrackCost: currentArea.type === 'floor' && currentArea.hasAntiCrack ? totalSqM * antiCrackPrice : 0,
+      tankingCost: currentArea.type === 'wall' && currentArea.hasTanking ? totalSqM * tankingPrice : 0
+    };
+
+    if (editingId) {
+      setAreas(areas.map(a => a.id === editingId ? { ...areaData, id: editingId } : a));
+      setEditingId(null);
+    } else {
+      setAreas([...areas, { ...areaData, id: Date.now() }]);
+    }
+    
+    // Clear but keep defaults
+    setCurrentArea({ 
+      ...currentArea, name: '', manualArea: '', width: '', length: '', 
+      hasCementBoard: false, hasAntiCrack: false, hasTanking: false, isManualArea: false 
+    });
+  };
+
+  const addExtra = () => {
+    if (!currentExtra.name || !currentExtra.price) return;
+    const p = parseFloat(currentExtra.price);
+    const q = parseInt(currentExtra.qty) || 1;
+    setExtras([...extras, { ...currentExtra, id: Date.now(), total: p * q }]);
+    setCurrentExtra({ name: '', price: '', qty: 1 });
+  };
+
+  // --- SHARING HANDLERS ---
+  const sendWhatsApp = () => {
+    const msg = `*TILE QUOTE: ${projectInfo.quoteReference}*\nDate: ${projectInfo.date}\nCustomer: ${projectInfo.customerName || 'N/A'}\n\n*JOB SUMMARY:*\n${areas.map(a => `- ${a.name}: ${a.totalSqM}m²`).join('\n')}\n\n*TOTAL:* £${grandTotalGross.toFixed(2)}${isVatRegistered ? ' (inc VAT)' : ''}\n\n_Sent via TileQuote UK Pro_`;
+    let phone = projectInfo.phoneNumber.replace(/\D/g, '');
+    if (phone.startsWith('0')) phone = '44' + phone.substring(1);
+    else if (phone && !phone.startsWith('44')) phone = '44' + phone;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-32 print:bg-white print:pb-0">
+      
+      {/* MAIN APP INTERFACE */}
+      <div className="print:hidden">
+        <header className="bg-white border-b sticky top-0 z-30 px-4 py-4 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-md">
+              <Calculator size={18} strokeWidth={2.5} />
             </div>
-            
-            <button id="settingsBtn" class="p-2 glass rounded-full text-slate-400 hover:text-white transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-            </button>
+            <h1 className="font-bold text-lg tracking-tight">TileQuote UK</h1>
+          </div>
+          <button onClick={connectLaser} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all ${btStatus === 'connected' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500'}`}>
+            {btStatus === 'connected' ? <BluetoothConnected size={14} /> : <Bluetooth size={14} />} 
+            {btStatus === 'connected' ? 'LASER LINKED' : 'CONNECT'}
+          </button>
         </header>
 
-        <!-- Main Readout Display -->
-        <main class="flex flex-col gap-6">
-            <section class="glass rounded-[2rem] p-8 flex flex-col items-center justify-center relative shadow-2xl overflow-hidden min-h-[220px]">
-                <!-- Background Pulse Effect -->
-                <div id="readPulse" class="absolute inset-0 bg-blue-500/10 opacity-0 transition-opacity pointer-events-none"></div>
-                
-                <div class="absolute top-5 flex items-center gap-2">
-                    <span id="protocolBadge" class="text-[10px] font-bold bg-white/10 px-2 py-0.5 rounded border border-white/10 uppercase tracking-widest text-blue-400">Generic Mode</span>
+        <main className="p-4 max-w-2xl mx-auto space-y-6">
+          {activeTab === 'measure' ? (
+            <div className="space-y-4 animate-in fade-in duration-300">
+              {/* Form Section */}
+              <section className={`bg-white rounded-3xl p-6 shadow-sm border-2 transition-all ${editingId ? 'border-indigo-400 ring-4 ring-indigo-50' : 'border-slate-100'}`}>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    {editingId ? <Pencil size={14} /> : <Ruler size={14} />} 
+                    {editingId ? 'Amend Room Data' : 'Room Configuration'}
+                  </h2>
+                  {editingId && <button onClick={() => setEditingId(null)} className="text-[10px] text-red-500 font-bold hover:underline">CANCEL</button>}
                 </div>
-
-                <div id="displayValue" class="text-7xl font-bold digital text-white mb-1 drop-shadow-2xl transition-all duration-300">0.000</div>
-                <div id="displayUnit" class="text-sm font-bold text-slate-500 uppercase tracking-widest">meters</div>
-
-                <!-- Signal Indicator -->
-                <div id="signalIndicator" class="mt-6 flex items-center gap-2 opacity-0 transition-all scale-90">
-                    <div class="relative w-2 h-2 rounded-full bg-red-500 signal-pulse"></div>
-                    <span class="text-[10px] font-black text-red-500 uppercase tracking-tighter">Read Successful</span>
-                </div>
-            </section>
-
-            <!-- Quick Controls -->
-            <section class="grid grid-cols-2 gap-3">
-                <button id="connectBtn" class="btn-active col-span-2 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 flex items-center justify-center gap-3 transition-all">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="m17 7-5-5-5 5"/><path d="m17 17-5 5-5-5"/></svg>
-                    CONNECT DEVICE
-                </button>
                 
-                <button id="unitBtn" class="btn-active glass p-4 rounded-2xl flex flex-col items-center justify-center gap-1">
-                    <span class="text-[10px] font-bold text-slate-500 uppercase">Unit</span>
-                    <span id="unitLabel" class="font-bold text-sm">METERS (m)</span>
-                </button>
-
-                <button id="exportBtn" class="btn-active glass p-4 rounded-2xl flex flex-col items-center justify-center gap-1">
-                    <span class="text-[10px] font-bold text-slate-500 uppercase">Data</span>
-                    <span class="font-bold text-sm text-blue-400">EXPORT CSV</span>
-                </button>
-            </section>
-
-            <!-- Configuration Modal (Hidden by Default) -->
-            <div id="configOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-end sm:items-center justify-center p-4">
-                <div class="glass w-full max-w-sm rounded-[2rem] p-6 animate-in slide-in-from-bottom-10">
-                    <h3 class="text-lg font-bold mb-4">Device Settings</h3>
-                    
-                    <div class="space-y-4">
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Compatibility Profile</label>
-                            <select id="profileSelect" class="w-full bg-slate-800 border border-white/10 rounded-xl p-3 text-sm mt-1 outline-none focus:ring-2 ring-blue-500">
-                                <option value="generic">Standard (Mileseey/SNDWAY)</option>
-                                <option value="bosch">Professional (Bosch GLM)</option>
-                                <option value="custom">Advanced (Custom UUID)</option>
-                            </select>
-                        </div>
-                        
-                        <div id="customUuidGroup" class="hidden">
-                            <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">Service UUID</label>
-                            <input id="customUuidInput" type="text" placeholder="0000FFE0-..." class="w-full bg-slate-800 border border-white/10 rounded-xl p-3 text-sm mt-1 digital uppercase">
-                        </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 flex gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button onClick={() => setCurrentArea({...currentArea, type:'floor'})} className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold transition-all ${currentArea.type === 'floor' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>FLOOR</button>
+                    <button onClick={() => setCurrentArea({...currentArea, type:'wall'})} className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold transition-all ${currentArea.type === 'wall' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>WALL</button>
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <div className="flex justify-between mb-1">
+                      <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase tracking-tighter">Room Name</label>
+                      <button onClick={() => setCurrentArea({...currentArea, isManualArea: !currentArea.isManualArea})} className={`text-[9px] font-black px-2 py-1 rounded border ${currentArea.isManualArea ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 text-slate-400'}`}>
+                        {currentArea.isManualArea ? 'MANUAL ON' : 'OVERRIDE M²'}
+                      </button>
                     </div>
+                    <input type="text" value={currentArea.name} onChange={e => setCurrentArea({...currentArea, name: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm focus:ring-2 ring-indigo-500" placeholder="e.g. Master Ensuite" />
+                  </div>
 
-                    <button id="closeConfig" class="w-full mt-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-sm">SAVE & CLOSE</button>
+                  {currentArea.isManualArea ? (
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-bold text-amber-600 ml-1">TOTAL SQM (m²)</label>
+                      <input type="number" value={currentArea.manualArea} onChange={e => setCurrentArea({...currentArea, manualArea: e.target.value})} className="w-full bg-amber-50 border-none rounded-xl p-3 text-sm font-bold focus:ring-2 ring-amber-500" placeholder="Enter area manually" />
+                    </div>
+                  ) : (
+                    <>
+                      <div><label className="text-[10px] font-bold text-slate-500 ml-1">WIDTH (m)</label><input type="number" step="0.001" value={currentArea.width} onChange={e => setCurrentArea({...currentArea, width: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="0.000" /></div>
+                      <div><label className="text-[10px] font-bold text-slate-500 ml-1">LENGTH (m)</label><input type="number" step="0.001" value={currentArea.length} onChange={e => setCurrentArea({...currentArea, length: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="0.000" /></div>
+                    </>
+                  )}
+
+                  <div><label className="text-[10px] font-bold text-slate-500 ml-1">TILE (£/m²)</label><input type="number" value={currentArea.tilePrice} onChange={e => setCurrentArea({...currentArea, tilePrice: e.target.value})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm" placeholder="0.00" /></div>
+                  <div><label className="text-[10px] font-bold text-slate-500 ml-1">WASTE %</label><select value={currentArea.wastePercent} onChange={e => setCurrentArea({...currentArea, wastePercent: parseInt(e.target.value)})} className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm"><option value={5}>5%</option><option value={10}>10%</option><option value={15}>15%</option></select></div>
+
+                  <div className="col-span-2 pt-4 border-t border-slate-100 flex gap-2">
+                    {currentArea.type === 'floor' ? (
+                      <>
+                        <button onClick={() => setCurrentArea({...currentArea, hasCementBoard: !currentArea.hasCementBoard})} className={`flex-1 py-3 rounded-xl border text-[9px] font-black tracking-tighter ${currentArea.hasCementBoard ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white text-slate-400'}`}>CEMENT BOARD</button>
+                        <button onClick={() => setCurrentArea({...currentArea, hasAntiCrack: !currentArea.hasAntiCrack})} className={`flex-1 py-3 rounded-xl border text-[9px] font-black tracking-tighter ${currentArea.hasAntiCrack ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white text-slate-400'}`}>ANTI-CRACK</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setCurrentArea({...currentArea, hasTanking: !currentArea.hasTanking})} className={`flex-1 py-3 rounded-xl border text-[9px] font-black tracking-tighter ${currentArea.hasTanking ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white text-slate-400'}`}>WATERPROOF TANKING</button>
+                    )}
+                  </div>
+
+                  <button onClick={saveArea} className="col-span-2 mt-4 bg-indigo-600 text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95 transition-all">{editingId ? 'UPDATE AREA' : 'SAVE ROOM'}</button>
                 </div>
+              </section>
+
+              {/* Inventory List */}
+              <div className="space-y-3">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Job Inventory ({areas.length})</h3>
+                {areas.map(a => (
+                  <div key={a.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm group">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2.5 rounded-xl ${a.type === 'floor' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                        {a.type === 'floor' ? <Square size={20} /> : <Layout size={20} />}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-800">{a.name}</h4>
+                        <div className="flex gap-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">{a.totalSqM}m²</span>
+                          {a.hasTanking && <span className="text-[9px] text-blue-600 font-bold">TANKED</span>}
+                          {a.hasCementBoard && <span className="text-[9px] text-indigo-600 font-bold">BOARDED</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => {setCurrentArea(a); setEditingId(a.id); window.scrollTo(0,0)}} className="p-2 text-slate-400 hover:text-indigo-600"><Pencil size={16}/></button>
+                      <button onClick={() => setAreas(areas.filter(x => x.id !== a.id))} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
+          ) : (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* Quote/Client Tab */}
+              <section className="bg-white rounded-3xl p-6 border shadow-sm space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Client Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 relative">
+                    <input type="text" value={projectInfo.customerName} onChange={e => setProjectInfo({...projectInfo, customerName: e.target.value})} className="w-full bg-slate-50 rounded-xl p-3 pl-10 text-sm border-none" placeholder="Customer Name" />
+                    <User size={14} className="absolute left-3.5 top-3.5 text-slate-400" />
+                  </div>
+                  <div className="col-span-2 relative">
+                    <input type="tel" value={projectInfo.phoneNumber} onChange={e => setProjectInfo({...projectInfo, phoneNumber: e.target.value})} className="w-full bg-slate-50 rounded-xl p-3 pl-10 text-sm border-none" placeholder="Mobile (for WhatsApp)" />
+                    <Phone size={14} className="absolute left-3.5 top-3.5 text-slate-400" />
+                  </div>
+                  <div className="col-span-2 relative">
+                    <textarea value={projectInfo.siteAddress} onChange={e => setProjectInfo({...projectInfo, siteAddress: e.target.value})} className="w-full bg-slate-50 rounded-xl p-3 pl-10 text-sm border-none h-16" placeholder="Site Address"></textarea>
+                    <MapPin size={14} className="absolute left-3.5 top-3.5 text-slate-400" />
+                  </div>
+                </div>
+              </section>
 
-            <!-- History List -->
-            <section class="flex flex-col flex-grow">
-                <div class="flex items-center justify-between px-2 mb-3">
-                    <h2 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recent Measurements</h2>
-                    <button id="clearBtn" class="text-[10px] font-bold text-red-500/80 hover:text-red-500 uppercase">Clear All</button>
+              <section className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
+                <div className="flex gap-3"><Receipt className="text-indigo-600"/><div className="font-bold text-indigo-900 text-sm tracking-tight">Apply 20% VAT?</div></div>
+                <button onClick={() => setIsVatRegistered(!isVatRegistered)} className={`w-12 h-6 rounded-full relative transition-colors ${isVatRegistered ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isVatRegistered ? 'left-7' : 'left-1'}`}></div></button>
+              </section>
+
+              <section className="bg-slate-900 text-white rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 opacity-10"><Calculator size={140} /></div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-50 mb-2">Estimate Total</p>
+                <h2 className="text-5xl font-black mb-6">£{grandTotalGross.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
+                <div className="grid grid-cols-2 border-t border-white/10 pt-6">
+                  <div><p className="text-[9px] opacity-40 uppercase font-black">Net Amount</p><p className="text-lg font-bold italic">£{subTotalNet.toFixed(2)}</p></div>
+                  <div className="text-right"><p className="text-[9px] opacity-40 uppercase font-black">VAT (20%)</p><p className="text-lg font-bold italic">£{vatAmount.toFixed(2)}</p></div>
                 </div>
-                
-                <div id="historyList" class="flex-grow overflow-y-auto scrollbar-hide space-y-2 max-h-[300px]">
-                    <div id="emptyMsg" class="h-40 flex items-center justify-center text-slate-600 text-sm italic">
-                        No readings logged...
-                    </div>
+              </section>
+
+              <div className="grid grid-cols-1 gap-3">
+                <button onClick={sendWhatsApp} className="bg-emerald-600 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 active:scale-95 shadow-lg"><MessageSquare size={20} /> SEND VIA WHATSAPP</button>
+                <button onClick={() => window.print()} className="bg-indigo-600 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 active:scale-95 shadow-lg"><Printer size={20} /> GENERATE PDF QUOTE</button>
+              </div>
+
+              {/* Material Breakdown */}
+              <section className="bg-white rounded-3xl p-6 border shadow-sm space-y-4">
+                <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Material Breakdown</h3>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between pb-1 border-b border-slate-50"><span>Tiles ({grandTotalGrossSqM.toFixed(1)}m²)</span><span className="font-bold">£{totalTileCost.toFixed(2)}</span></div>
+                  <div className="flex justify-between pb-1 border-b border-slate-50"><span>Adhesive ({bagsAdhesive} Bags)</span><span className="font-bold">£{totalAdhesiveCost.toFixed(2)}</span></div>
+                  <div className="flex justify-between pb-1 border-b border-slate-50"><span>Prep & Consumables</span><span className="font-bold">£{(totalPrepCost + totalPrimerCost + totalSealantCost).toFixed(2)}</span></div>
                 </div>
-            </section>
+              </section>
+            </div>
+          )}
         </main>
+
+        <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t px-8 py-5 flex justify-around items-center z-40">
+          <button onClick={() => setActiveTab('measure')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'measure' ? 'text-indigo-600 scale-110' : 'text-slate-400'}`}><Ruler size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Inventory</span></button>
+          <button onClick={() => setActiveTab('quote')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'quote' ? 'text-indigo-600 scale-110' : 'text-slate-400'}`}><FileText size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Quote</span></button>
+        </nav>
+      </div>
+
+      {/* HIDDEN PRINT TEMPLATE */}
+      <div className="hidden print:block p-12 font-sans text-slate-900 bg-white min-h-screen">
+        <div className="flex justify-between items-start border-b-8 border-indigo-600 pb-10 mb-10">
+          <div>
+            <h1 className="text-5xl font-black text-indigo-600 mb-1 tracking-tighter uppercase">Quote</h1>
+            <p className="font-bold text-slate-500">Ref: {projectInfo.quoteReference}</p>
+            <p className="text-sm">Date: {projectInfo.date}</p>
+          </div>
+          <div className="text-right">
+            <h2 className="text-2xl font-black uppercase">Service Estimate</h2>
+            <p className="text-sm font-bold opacity-70">Professional Tiling Services</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-12 mb-16">
+          <div>
+            <h3 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-widest">Customer</h3>
+            <p className="font-black text-xl">{projectInfo.customerName || 'N/A'}</p>
+            <p className="text-md mt-1">{projectInfo.phoneNumber || 'N/A'}</p>
+          </div>
+          <div className="text-right">
+            <h3 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-widest">Site Address</h3>
+            <p className="text-md whitespace-pre-wrap font-medium">{projectInfo.siteAddress || 'N/A'}</p>
+          </div>
+        </div>
+
+        <table className="w-full text-left border-collapse mb-16">
+          <thead>
+            <tr className="bg-slate-50 border-b-2 border-slate-200">
+              <th className="p-4 text-xs font-black uppercase">Item Description</th>
+              <th className="p-4 text-xs font-black uppercase text-right">Quantity</th>
+              <th className="p-4 text-xs font-black uppercase text-right">Net Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {areas.map(a => (
+              <tr key={a.id} className="border-b border-slate-100">
+                <td className="p-4"><p className="font-black text-slate-800 uppercase text-sm">{a.name}</p><p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{a.type} Tiling + Materials</p></td>
+                <td className="p-4 text-sm text-right font-mono font-bold tracking-tight">{a.totalSqM}m²</td>
+                <td className="p-4 text-sm text-right font-mono font-black">£{a.tileTotal.toFixed(2)}</td>
+              </tr>
+            ))}
+            <tr className="border-b border-slate-100 bg-slate-50/50 italic">
+              <td className="p-4 text-sm font-bold">Labour Charge (Calculated m²)</td>
+              <td className="p-4 text-sm text-right font-mono">{grandTotalGrossSqM.toFixed(2)}m²</td>
+              <td className="p-4 text-sm text-right font-mono font-black">£{totalLabor.toFixed(2)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="flex justify-end pr-4">
+          <div className="w-80 space-y-4">
+            <div className="flex justify-between text-sm uppercase font-bold text-slate-500"><span>Net Total:</span><span>£{subTotalNet.toFixed(2)}</span></div>
+            {isVatRegistered && (
+              <div className="flex justify-between text-sm uppercase font-bold text-slate-500"><span>VAT (20%):</span><span>£{vatAmount.toFixed(2)}</span></div>
+            )}
+            <div className="flex justify-between text-3xl font-black pt-6 border-t-4 border-indigo-600">
+              <span className="tracking-tighter">TOTAL:</span>
+              <span className="italic tracking-tighter">£{grandTotalGross.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-32 border-t border-slate-200 pt-8">
+          <p className="text-xs text-slate-400 font-black uppercase tracking-widest mb-2">Terms & Validity</p>
+          <p className="text-[10px] text-slate-400 leading-relaxed max-w-lg italic">
+            This estimate is valid for 30 days from the date above. Material prices are subject to supplier market fluctuations. 
+            Preparation requirements not detailed in this inventory may incur additional charges upon site start.
+          </p>
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body { background: white !important; margin: 0; padding: 0; }
+          .print\\:hidden { display: none !important; }
+          .print\\:block { display: block !important; }
+        }
+      `}} />
+
+      {/* Laser HUD */}
+      {btStatus === 'connected' && lastBleValue && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 animate-bounce z-50 ring-4 ring-indigo-500/30">
+          <BluetoothConnected size={16} />
+          <span className="font-mono font-black text-sm tracking-widest">{lastBleValue}m</span>
+        </div>
+      )}
     </div>
+  );
+};
 
-    <!-- UI Feedback Toast -->
-    <div id="toast" class="fixed bottom-10 bg-white text-slate-900 px-6 py-3 rounded-full text-xs font-bold shadow-2xl opacity-0 translate-y-10 transition-all duration-300 pointer-events-none z-50"></div>
+export default App;
 
-    <script>
-        /**
-         * BT PROTOCOL DATABASE
-         * Most generic Chinese lasers use the 0xFFE0 / 0xFFE1 Serial-over-BLE profile.
-         * Bosch GLM uses a specific proprietary UUID.
-         */
-        const PROFILES = {
-            generic: { service: '0000ffe0-0000-1000-8000-00805f9b34fb', char: '0000ffe1-0000-1000-8000-00805f9b34fb' },
-            bosch:   { service: '02a10001-524f-4b49-424f-5343484d5354', char: '02a10002-524f-4b49-424f-5343484d5354' }
-        };
-
-        // Application State
-        let device = null;
-        let characteristic = null;
-        let currentUnit = 'm';
-        let measurementHistory = [];
-
-        // DOM Elements
-        const connectBtn = document.getElementById('connectBtn');
-        const displayValue = document.getElementById('displayValue');
-        const historyList = document.getElementById('historyList');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-        const configOverlay = document.getElementById('configOverlay');
-
-        function showToast(msg) {
-            const t = document.getElementById('toast');
-            t.innerText = msg;
-            t.classList.remove('opacity-0', 'translate-y-10');
-            setTimeout(() => t.classList.add('opacity-0', 'translate-y-10'), 3000);
-        }
-
-        function setVisualConnection(isConnected) {
-            statusDot.className = isConnected ? 'w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'w-1.5 h-1.5 rounded-full bg-red-500';
-            statusText.innerText = isConnected ? 'Connected' : 'Disconnected';
-            connectBtn.innerText = isConnected ? 'DISCONNECT DEVICE' : 'CONNECT DEVICE';
-            connectBtn.className = isConnected ? 'btn-active col-span-2 py-5 bg-slate-800 text-white rounded-2xl font-bold shadow-xl transition-all' : 'btn-active col-span-2 py-5 bg-blue-600 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 transition-all';
-        }
-
-        /**
-         * Main Connection Flow
-         * Triggered by user gesture
-         */
-        async function handleConnect() {
-            if (device && device.gatt.connected) {
-                device.gatt.disconnect();
-                return;
-            }
-
-            const profileKey = document.getElementById('profileSelect').value;
-            let serviceUuid, charUuid;
-
-            if (profileKey === 'custom') {
-                serviceUuid = document.getElementById('customUuidInput').value.toLowerCase();
-                if (!serviceUuid) return showToast("Enter a Service UUID first");
-            } else {
-                serviceUuid = PROFILES[profileKey].service;
-                charUuid = PROFILES[profileKey].char;
-            }
-
-            try {
-                showToast("Requesting Bluetooth Device...");
-                device = await navigator.bluetooth.requestDevice({
-                    filters: profileKey === 'generic' ? undefined : [{ services: [serviceUuid] }],
-                    acceptAllDevices: profileKey === 'generic',
-                    optionalServices: [serviceUuid]
-                });
-
-                showToast("Connecting to GATT Server...");
-                const server = await device.gatt.connect();
-                
-                showToast("Discovering Services...");
-                const service = await server.getPrimaryService(serviceUuid);
-                
-                if (charUuid) {
-                    characteristic = await service.getCharacteristic(charUuid);
-                } else {
-                    // Auto-detect first notify characteristic
-                    const chars = await service.getCharacteristics();
-                    characteristic = chars.find(c => c.properties.notify || c.properties.indicate);
-                }
-
-                if (!characteristic) throw new Error("No data channel found on device");
-
-                await characteristic.startNotifications();
-                characteristic.addEventListener('characteristicvaluechanged', parseDataPacket);
-                
-                device.addEventListener('gattserverdisconnected', () => setVisualConnection(false));
-                
-                setVisualConnection(true);
-                showToast("Connection Established!");
-                document.getElementById('protocolBadge').innerText = profileKey + " mode";
-
-            } catch (err) {
-                console.error(err);
-                showToast(err.message.includes("User cancelled") ? "Pairing cancelled" : "Error: " + err.message);
-            }
-        }
-
-        /**
-         * Smart Parser
-         * Handles both String-based ASCII and Binary data
-         */
-        function parseDataPacket(event) {
-            const value = event.target.value;
-            
-            // 1. Trigger UI visual feedback
-            const pulse = document.getElementById('readPulse');
-            const signal = document.getElementById('signalIndicator');
-            pulse.classList.add('opacity-100');
-            signal.classList.add('opacity-100', 'scale-100');
-            setTimeout(() => {
-                pulse.classList.remove('opacity-100');
-                signal.classList.remove('opacity-100', 'scale-100');
-            }, 800);
-
-            let meters = null;
-
-            // Strategy A: ASCII Decoding (Most generic lasers)
-            // Expecting something like "1.234m" or "5.678"
-            const rawString = new TextDecoder().decode(value).trim();
-            const stringMatches = rawString.match(/[0-9]+\.[0-9]+/);
-            if (stringMatches) {
-                meters = parseFloat(stringMatches[0]);
-            }
-
-            // Strategy B: Binary Decoding (Professional tools)
-            // Often sends a 4-byte Float32
-            if (meters === null || meters === 0) {
-                try {
-                    // Common offset for Bosch distance values
-                    const f32 = value.getFloat32(1, true);
-                    if (f32 > 0.01 && f32 < 100) meters = f32;
-                } catch(e) {}
-            }
-
-            if (meters !== null && !isNaN(meters)) {
-                processReading(meters);
-            }
-        }
-
-        function processReading(meters) {
-            let val = meters;
-            if (currentUnit === 'ft') val = meters * 3.28084;
-            if (currentUnit === 'in') val = meters * 39.3701;
-
-            const formatted = val.toFixed(3);
-            displayValue.innerText = formatted;
-            
-            const entry = {
-                val: formatted,
-                unit: currentUnit,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            };
-            
-            measurementHistory.unshift(entry);
-            renderHistory();
-        }
-
-        function renderHistory() {
-            const empty = document.getElementById('emptyMsg');
-            if (measurementHistory.length > 0) empty.classList.add('hidden');
-            
-            historyList.innerHTML = '';
-            measurementHistory.forEach((item, i) => {
-                const div = document.createElement('div');
-                div.className = 'glass bg-white/5 flex items-center justify-between p-4 rounded-xl border-white/5 animate-in fade-in slide-in-from-left-2';
-                div.innerHTML = `
-                    <div class="flex flex-col">
-                        <span class="text-[9px] font-bold text-slate-500 uppercase">${item.time}</span>
-                        <div class="digital text-xl font-bold">
-                            ${item.val} <span class="text-[10px] text-blue-500 font-black ml-1 uppercase">${item.unit}</span>
-                        </div>
-                    </div>
-                    <button onclick="copyReading('${item.val}')" class="p-3 text-slate-400 hover:text-white transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                    </button>
-                `;
-                historyList.appendChild(div);
-            });
-        }
-
-        window.copyReading = (v) => {
-            const el = document.createElement('textarea');
-            el.value = v;
-            document.body.appendChild(el);
-            el.select();
-            document.execCommand('copy');
-            document.body.removeChild(el);
-            showToast("Copied to clipboard");
-        };
-
-        // UI Event Handlers
-        connectBtn.addEventListener('click', handleConnect);
-
-        document.getElementById('unitBtn').addEventListener('click', () => {
-            const units = ['m', 'ft', 'in'];
-            const labels = { m: 'METERS (m)', ft: 'FEET (ft)', in: 'INCHES (in)' };
-            currentUnit = units[(units.indexOf(currentUnit) + 1) % units.length];
-            document.getElementById('unitLabel').innerText = labels[currentUnit];
-            document.getElementById('displayUnit').innerText = currentUnit === 'm' ? 'meters' : currentUnit === 'ft' ? 'feet' : 'inches';
-            showToast(`Switched to ${labels[currentUnit]}`);
-        });
-
-        document.getElementById('settingsBtn').addEventListener('click', () => configOverlay.classList.remove('hidden'));
-        document.getElementById('closeConfig').addEventListener('click', () => configOverlay.classList.add('hidden'));
-
-        document.getElementById('profileSelect').addEventListener('change', (e) => {
-            document.getElementById('customUuidGroup').classList.toggle('hidden', e.target.value !== 'custom');
-        });
-
-        document.getElementById('clearBtn').addEventListener('click', () => {
-            measurementHistory = [];
-            renderHistory();
-            displayValue.innerText = "0.000";
-            document.getElementById('emptyMsg').classList.remove('hidden');
-        });
-
-        document.getElementById('exportBtn').addEventListener('click', () => {
-            if (measurementHistory.length === 0) return showToast("No data to export");
-            const csv = "Time,Value,Unit\n" + measurementHistory.map(h => `${h.time},${h.val},${h.unit}`).join("\n");
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `measurements_${Date.now()}.csv`;
-            a.click();
-        });
-
-        // Initial Feature Check
-        window.onload = () => {
-            if (!navigator.bluetooth) {
-                connectBtn.disabled = true;
-                connectBtn.classList.replace('bg-blue-600', 'bg-red-900/50');
-                connectBtn.innerText = "BT NOT SUPPORTED";
-                showToast("Use Chrome/Edge on Desktop or Android.");
-            }
-        };
-    </script>
-</body>
-</html>
-
+n
